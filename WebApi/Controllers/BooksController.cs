@@ -1,6 +1,7 @@
 ﻿using Entities.Models;
 using Microsoft.AspNetCore.JsonPatch;
 using Microsoft.AspNetCore.Mvc;
+using Repositories.Contracts;
 using Repositories.EFCore;
 
 namespace WebApi.Controllers
@@ -9,11 +10,11 @@ namespace WebApi.Controllers
     [ApiController]
     public class BooksController : ControllerBase
     {
-        private readonly RepositoryContext _context;
+        private readonly IRepositoryManager _manager;
 
-        public BooksController(RepositoryContext context)
+        public BooksController(IRepositoryManager manager)
         {
-            _context = context;
+            _manager = manager;
         }
 
         [HttpGet]
@@ -22,7 +23,7 @@ namespace WebApi.Controllers
             try
             {
 
-                var books = _context.Books.ToList();
+                var books = _manager.Book.GetAllBooks(false);
                 return Ok(books);
             }
             catch (Exception ex)
@@ -36,12 +37,8 @@ namespace WebApi.Controllers
         {
             try
             {
-                var book = _context
-                .Books
-                .Where(b => b.Id.Equals(id))
-                .SingleOrDefault();
+                var book = _manager.Book.GetOneBookById(id, false);
                 if (book is null) return NotFound(); //404
-
                 return Ok(book);
             }
             catch (Exception ex)
@@ -60,8 +57,8 @@ namespace WebApi.Controllers
                 {
                     return BadRequest(); //400;
                 }
-                _context.Books.Add(book);
-                _context.SaveChanges();
+                _manager.Book.CreateOneBook(book);
+                _manager.Save();
                 return StatusCode(201, book);
             }
             catch (Exception ex)
@@ -75,7 +72,7 @@ namespace WebApi.Controllers
         {
             try
             { //check db has a book??
-                var dbBook = _context.Books.Where(b => b.Id.Equals(id)).SingleOrDefault();
+                var dbBook = _manager.Book.GetOneBookById(id, true);
 
                 if (dbBook is null) return NotFound();  //404
                 if (id != book.Id) return BadRequest(); //400
@@ -83,7 +80,7 @@ namespace WebApi.Controllers
                 dbBook.Title = book.Title;
                 dbBook.Price = book.Price;
 
-                _context.SaveChanges();
+                _manager.Save();
                 return Ok(book);    //200 }catch (Exception ex) { }
             }
             catch (Exception ex)
@@ -98,15 +95,15 @@ namespace WebApi.Controllers
         {
             try
             {
-                var dbBook = _context.Books.Where(b => b.Id.Equals(id)).SingleOrDefault();
+                var dbBook = _manager.Book.GetOneBookById(id, true);
                 if (dbBook is null) return BadRequest(
                     new
                     {
                         StatusCode = 404,
                         message = $"Book with id:{id} could not be found",
                     });
-                _context.Books.Remove(dbBook);
-                _context.SaveChanges();
+                _manager.Book.DeleteOneBook(dbBook);
+                _manager.Save();
                 return NoContent();
             }
             catch (Exception ex)
@@ -118,20 +115,29 @@ namespace WebApi.Controllers
         [HttpPatch("{id:int}")]
         public IActionResult partiallyUpdateOneBook([FromRoute(Name = "id")] int id, [FromBody] JsonPatchDocument<Book> bookPatch)
         {
-            var dbBook = _context.Books.Where(b => b.Id.Equals(id)).SingleOrDefault();
-            if (dbBook is null)
+            try
             {
-                return BadRequest(
-                    new
-                    {
-                        StatusCode = 404,
-                        message = $"Book with id:{id} could not be found",
-                    }
-                );
+                var dbBook = _manager.Book.GetOneBookById(id, true);
+                if (dbBook is null)
+                {
+                    return BadRequest(
+                        new
+                        {
+                            StatusCode = 404,
+                            message = $"Book with id:{id} could not be found",
+                        }
+                    );
+                }
+                bookPatch.ApplyTo(dbBook);
+                _manager.Book.Update(dbBook);
+                _manager.Save();
+                return NoContent(); // 204
             }
-            bookPatch.ApplyTo(dbBook);
-            _context.SaveChanges();
-            return NoContent(); // 204
+            catch (Exception ex)
+            {
+                throw new Exception(ex.Message);
+            }
+
         }
     }
 }
